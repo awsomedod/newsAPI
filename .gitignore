@@ -24,10 +24,6 @@ yarn.lock
 .env.production
 .env.test
 
-# TypeScript compiled files
-*.ts
-*.map
-
 # IDE and OS-specific files
 .idea/
 .vscode/
