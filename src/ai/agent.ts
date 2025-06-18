@@ -132,7 +132,6 @@ Your output should be a summary of the news articles in the following category: 
   const client = createLLMClient({
     provider: 'google',
     model: 'gemini-2.0-flash',
-    apiKey: "AIzaSyBt5EUJDfGsloIibeuFTA7On7YlSLQWylk",
   });
 
   (async () => {

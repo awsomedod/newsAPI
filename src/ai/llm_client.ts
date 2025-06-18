@@ -37,11 +37,7 @@ export class MockClient implements LLMClient {
 export class GoogleGenAIClient implements LLMClient {
   private client: Genkit;
   
-  constructor(private config: LLMConfig) {
-    if (!config.apiKey) {
-      throw new Error('Google API key is required for google provider.');
-    }
-
+  constructor(config: LLMConfig) {
     if (GoogleModel.has(config.model)) {
       console.log(`Using Google model: ${config.model}`);
     } else {
