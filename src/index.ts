@@ -2,7 +2,7 @@ import express from 'express';
 import { z } from 'zod';
 import { createLLMClient } from './ai/llm_client';
 import { suggestNewsSources, provideNews } from './ai/agent';
-import { LLMConfig, Sources } from './ai/types';
+import { LLMConfig, NewsSummaryResponseItem, Sources } from './ai/types';
 import cors from 'cors';
 
 const app = express();
@@ -29,7 +29,7 @@ const suggestSourcesSchema = z.object({
 });
 
 const newsSummarySchema = z.object({
-  sources: z.array(z.string().min(1, 'Source is required'))
+  sources: z.array(z.string().min(1, 'At least one source is required'))
 });
 
 // Global variable to store the LLM client
@@ -124,16 +124,19 @@ app.post('/api/news-summary', async (req, res) => {
       });
     }
 
-    const { sources } = newsSummarySchema.parse(req.body);
+    const sources = newsSummarySchema.parse(req.body).sources;
     
-    // Set response headers for streaming
-    res.setHeader('Content-Type', 'text/plain');
-    res.setHeader('Transfer-Encoding', 'chunked');
+    // // Set response headers for streaming
+    // res.setHeader('Content-Type', 'text/plain');
+    // res.setHeader('Transfer-Encoding', 'chunked');
     
     // Call the provideNews function and stream the response
-    const summary = await provideNews(sources, llmClient);
+    const summary: NewsSummaryResponseItem[] = await provideNews(sources, llmClient);
     
-    res.end(summary);
+    res.json({
+      success: true,
+      summary: summary
+    });
   } catch (error) {
     if (error instanceof z.ZodError) {
       res.status(400).json({ 

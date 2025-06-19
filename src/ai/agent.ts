@@ -1,9 +1,18 @@
-import { LLMClient, sourcesSchema, Sources, categoriesSchema, Categories } from "./types";
+import { LLMClient, 
+    sourcesSchema, 
+    Sources, 
+    categoriesSchema, 
+    Categories, 
+    newsSummaryResponseItemSchema, 
+    NewsSummaryResponseItem } from "./types";
 
 export async function suggestNewsSources(topic: string, bias: string, client: LLMClient): Promise<Sources> {
     const prompt: string = createSuggestionPrompt(topic, bias);
     const response: Sources = await client.generateStructuredOutput<Sources>(prompt, sourcesSchema);
     const validSources : Sources = {sources: response.sources.filter((source: { url: string; }) => isValidUrl(source.url))};
+    validSources.sources.forEach((source: { id: number; }) => {
+        source.id = Math.floor(Math.random() * 1000000);
+    });
     return validSources;
 }
 
@@ -37,25 +46,25 @@ function estimateTokenCount(text: string): number {
     return Math.round((charBasedEstimate + wordBasedEstimate) / 2);
 }
 
-export async function provideNews(sources: string[], client: LLMClient): Promise<string> {
+export async function provideNews(sources: string[], client: LLMClient): Promise<NewsSummaryResponseItem[]> {
     const HTMLcontent: string[] = await Promise.all(sources.map(fetchWebpage));
     const prompt: string = createCategorizationPrompt(HTMLcontent);
+    console.log('\n\ntesting categorization prompt \n\n');
+    console.log(estimateTokenCount(prompt));
+    console.log('\n\n');
     const response: Categories = await client.generateStructuredOutput<Categories>(prompt, categoriesSchema);
+    
     for (const category of response.categoryArray) {
         console.log('--------------------------------');
         console.log(category.category);
         console.log(category.sources);
     }
 
-    console.log('Waiting for 1 and a half minutes...');
-    for (let i = 1; i <= 90; i++) {
-        console.log(`Second ${i}`);
-        await new Promise(resolve => setTimeout(resolve, 1000));
-    }
+    const newsSummaryResponseItemArray: NewsSummaryResponseItem[] = [];
     
     for (const category of response.categoryArray) {
-        console.log('Waiting for 1 and a half minutes...');
-        for (let i = 1; i <= 90; i++) {
+        console.log('Waiting for 20 seconds...');
+        for (let i = 1; i <= 20; i++) {
             console.log(`Second ${i}`);
             await new Promise(resolve => setTimeout(resolve, 1000));
         }
@@ -64,14 +73,23 @@ export async function provideNews(sources: string[], client: LLMClient): Promise
         console.log(category.sources);
         const relevantHTMLContent: string[] = HTMLcontent.filter((content, index) => category.sources.includes(index));
         const summaryPrompt: string = createSummaryPrompt(category.category, relevantHTMLContent);
-        const summaryStream: AsyncGenerator<string> = await client.streamText(summaryPrompt);
-        for await (const chunk of summaryStream) {
-            process.stdout.write(chunk);
-        }
+        const summaryStream: NewsSummaryResponseItem = await client.generateStructuredOutput(summaryPrompt, newsSummaryResponseItemSchema);
+        process.stdout.write(summaryStream.id.toString());
+        process.stdout.write(summaryStream.title);
+        process.stdout.write(summaryStream.summary);
+        process.stdout.write(summaryStream.image);
+
+        newsSummaryResponseItemArray.push(summaryStream);
+
         console.log('\n');
     }
 
-    return 'hey';
+    // Reroll IDs for each item in the array
+    for (let i = 0; i < newsSummaryResponseItemArray.length; i++) {
+        newsSummaryResponseItemArray[i].id = Math.floor(Math.random() * 1000000);
+    }
+
+    return newsSummaryResponseItemArray;
 }
 
 async function fetchWebpage(url: string): Promise<string> {
@@ -122,6 +140,13 @@ ${indexedSources}
 
 Your output should be a summary of the news articles in the following category: ${category}. The summary should be detailed and between 400 and 500 words long.
 
+Also, provide select a relevant image for the summary from the urls in the content. Also provide a title for the summary. Also provvide a unique id for the summary.
+
+Your output should be a JSON object with the following fields:
+- id: number
+- title: string
+- summary: string
+- image: string
 `;
     return prompt;
 }

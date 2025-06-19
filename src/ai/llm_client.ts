@@ -1,4 +1,5 @@
 import { googleAI } from '@genkit-ai/googleai';
+// import Anthropic from '@anthropic-ai/sdk';
 import { genkit, Genkit } from 'genkit';
 import { config } from 'dotenv';
 import { ZodSchema } from 'zod';
@@ -6,7 +7,18 @@ import { LLMClient, LLMConfig } from './types';
 
 
 config();
-const GoogleModel: Set<string> = new Set(['gemini-2.0-flash-lite', 'gemini-2.0-flash', 'gemini-2.5-flash-preview-05-20']);
+const GoogleModel: Set<string> = new Set(['gemini-2.0-flash-lite', 
+  'gemini-2.0-flash', 
+  'gemini-2.5-flash-preview-05-20',
+  'gemini-1.5-flash']);
+
+const ClaudeModel: Set<string> = new Set([
+  'claude-3-5-sonnet-20241022',
+  'claude-3-5-haiku-20241022',
+  'claude-3-opus-20240229',
+  'claude-3-sonnet-20240229',
+  'claude-3-haiku-20240307'
+]);
 
 
 
@@ -88,6 +100,8 @@ export class GoogleGenAIClient implements LLMClient {
 
 }
 
+
+
 // A factory function to create the right client
 export function createLLMClient(config: LLMConfig): LLMClient {
   switch (config.provider) {
@@ -95,6 +109,8 @@ export function createLLMClient(config: LLMConfig): LLMClient {
         return new MockClient(config);
     case 'google':
       return new GoogleGenAIClient(config);
+    // case 'claude':
+    //   return new ClaudeGenAIClient(config);
     // case 'anthropic':
     //   // return new AnthropicClient(config);
     // case 'openai':

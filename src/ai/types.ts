@@ -1,7 +1,7 @@
 import { ZodSchema } from "zod";
 import { z } from "genkit";
 
-export type LLMProvider = 'google' | 'anthropic' | 'openai' | 'mock';
+export type LLMProvider = 'google' | 'anthropic' | 'openai' | 'mock' | 'claude';
 
 export interface LLMConfig {
   provider: LLMProvider;
@@ -17,6 +17,7 @@ export interface LLMClient {
 
 export const sourcesSchema = z.object({
     sources: z.array(z.object({
+        id: z.number().describe('ID of the news source'),
         name: z.string().describe('Name of the news source'),
         url: z.string().describe('URL of the news source'),
         description: z.string().describe('Description of the news source'),
@@ -34,3 +35,12 @@ export const categoriesSchema = z.object({
 });
 
 export type Categories = z.infer<typeof categoriesSchema>;
+
+export const newsSummaryResponseItemSchema = z.object({
+  id: z.number().describe('ID of the news story'),
+  title: z.string().describe('Title of the news story'),
+  summary: z.string().describe('Summary of the news story'),
+  image: z.string().describe('Image of the news story'),
+});
+
+export type NewsSummaryResponseItem = z.infer<typeof newsSummaryResponseItemSchema>;
