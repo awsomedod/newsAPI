@@ -1,10 +1,9 @@
-import { createLLMClient } from "./llm_client";
 import { LLMClient, sourcesSchema, Sources, categoriesSchema, Categories } from "./types";
 
-export async function suggestNewsSources(topic: string, bias: string, client: LLMClient): Promise<string[]> {
+export async function suggestNewsSources(topic: string, bias: string, client: LLMClient): Promise<Sources> {
     const prompt: string = createSuggestionPrompt(topic, bias);
     const response: Sources = await client.generateStructuredOutput<Sources>(prompt, sourcesSchema);
-    const validSources: string[] = response.urlArray.filter(isValidUrl);
+    const validSources : Sources = {sources: response.sources.filter((source: { url: string; }) => isValidUrl(source.url))};
     return validSources;
 }
 
@@ -17,9 +16,9 @@ function createSuggestionPrompt(topic: string, bias: string) {
     Suggest 5 valid URLs of news sources related to the topic.`;
 }
 
-function isValidUrl(url: string): boolean {
+function isValidUrl(source: string): boolean {
     try {
-      new URL(url);
+      new URL(source);
       return true;
     } catch {
       return false;
@@ -37,8 +36,6 @@ function estimateTokenCount(text: string): number {
     // Return the average of both methods for better accuracy
     return Math.round((charBasedEstimate + wordBasedEstimate) / 2);
 }
-
-
 
 export async function provideNews(sources: string[], client: LLMClient): Promise<string> {
     const HTMLcontent: string[] = await Promise.all(sources.map(fetchWebpage));
@@ -128,24 +125,4 @@ Your output should be a summary of the news articles in the following category: 
 `;
     return prompt;
 }
-
-  const client = createLLMClient({
-    provider: 'google',
-    model: 'gemini-2.0-flash',
-  });
-
-  (async () => {
-    const sources = await suggestNewsSources('Basketball', 'Neutral', client);
-    console.log(sources);
-    const news = await provideNews(sources, client);
-    console.log(news);
-
-    const estimatedTokens = sources.map(async (source): Promise<number> => {
-        const estimatedTokens = estimateTokenCount(await fetchWebpage(source));
-        return estimatedTokens;
-    });
-
-    const totalTokens = (await Promise.all(estimatedTokens)).reduce((sum, token) => sum + token, 0);
-    console.log(`Total estimated tokens across all sources: ${totalTokens}`);
-  })();
 

@@ -44,7 +44,7 @@ export class GoogleGenAIClient implements LLMClient {
       throw new Error(`Invalid Google model: ${config.model}. Supported models are: ${Array.from(GoogleModel).join(', ')}`);
     }
     this.client = genkit({
-      plugins: [googleAI()],
+      plugins: [googleAI({apiKey: config.apiKey })],
       model: googleAI.model(config.model)
     });
   }

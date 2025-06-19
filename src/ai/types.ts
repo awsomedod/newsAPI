@@ -16,7 +16,12 @@ export interface LLMClient {
 }
 
 export const sourcesSchema = z.object({
-    urlArray: z.array(z.string().describe('URL of a news source')).describe('Array of URLs'),
+    sources: z.array(z.object({
+        name: z.string().describe('Name of the news source'),
+        url: z.string().describe('URL of the news source'),
+        description: z.string().describe('Description of the news source'),
+        category: z.string().describe('Category of the news source')
+    })).describe('Array of news sources'),
 });
 
 export type Sources = z.infer<typeof sourcesSchema>;
@@ -29,6 +34,3 @@ export const categoriesSchema = z.object({
 });
 
 export type Categories = z.infer<typeof categoriesSchema>;
-
-
-
