@@ -4,6 +4,7 @@ import { genkit, Genkit } from 'genkit';
 import { config } from 'dotenv';
 import { ZodSchema } from 'zod';
 import { LLMClient, LLMConfig } from './types';
+import { GoogleGenAI, Type } from "@google/genai";
 
 
 config();
@@ -44,10 +45,25 @@ export class MockClient implements LLMClient {
       await new Promise(resolve => setTimeout(resolve, 50));
     }
   }
+
+  async generateTextWithSearch(prompt: string): Promise<string> {
+    return `This is a mock search response for model ${this.config.model} to the prompt: ${prompt}`;
+  }
+
+  async generateTextWithSearchStructuredOutput<T>(prompt: string, schema: ZodSchema): Promise<T> {
+    const mockResponse = {
+      message: `This is a mock structured search response for model ${this.config.model}`,
+      prompt: prompt,
+      schema: schema,
+    };
+    return mockResponse as T;
+  }
 }
 
 export class GoogleGenAIClient implements LLMClient {
   private client: Genkit;
+  private googleAI: GoogleGenAI;
+  private model: string;
   
   constructor(config: LLMConfig) {
     if (GoogleModel.has(config.model)) {
@@ -59,6 +75,8 @@ export class GoogleGenAIClient implements LLMClient {
       plugins: [googleAI({apiKey: config.apiKey })],
       model: googleAI.model(config.model)
     });
+    this.googleAI = new GoogleGenAI({ apiKey: config.apiKey });
+    this.model = config.model;
   }
   
     
@@ -97,6 +115,35 @@ export class GoogleGenAIClient implements LLMClient {
     }
 
   }
+
+  async generateTextWithSearch(prompt: string): Promise<string> {
+    const groundingTool = {
+      googleSearch: {},
+    };
+
+    const config = {
+      tools: [groundingTool],
+    };
+
+    const response = await this.googleAI.models.generateContent({
+      model: this.model,
+      contents: prompt,
+      config,
+    });
+
+    return response.text;
+  }
+
+  async generateTextWithSearchStructuredOutput<T>(prompt: string, schema: ZodSchema): Promise<T> {
+    console.log('prompt', prompt);
+    const stringResponse = await this.generateTextWithSearch(prompt);
+    console.log('stringResponse', stringResponse);
+    const response: T = await this.generateStructuredOutput<T>(stringResponse, schema);
+
+    return response;
+  }
+
+
 
 }
 

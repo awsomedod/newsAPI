@@ -9,10 +9,21 @@ export interface LLMConfig {
   apiKey?: string;
 }
 
+export type Topic = {
+  name: string;
+  sources: string[];
+};
+
+export type PersistentMemory = {
+  topics: Topic[];
+}
+
 export interface LLMClient {
   generateText(prompt: string): Promise<string>;
   generateStructuredOutput<T>(prompt: string, schema: ZodSchema): Promise<T>;
   streamText(prompt: string, systemPrompt?: string): AsyncGenerator<string>;
+  generateTextWithSearch(prompt: string): Promise<string>;
+  generateTextWithSearchStructuredOutput<T>(prompt: string, schema: ZodSchema): Promise<T>;
 }
 
 export const sourcesSchema = z.object({

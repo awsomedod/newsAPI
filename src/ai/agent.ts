@@ -4,11 +4,13 @@ import { LLMClient,
     categoriesSchema, 
     Categories, 
     newsSummaryResponseItemSchema, 
-    NewsSummaryResponseItem } from "./types";
+    NewsSummaryResponseItem,
+    PersistentMemory,
+    Topic } from "./types";
 
 export async function suggestNewsSources(topic: string, bias: string, client: LLMClient): Promise<Sources> {
     const prompt: string = createSuggestionPrompt(topic, bias);
-    const response: Sources = await client.generateStructuredOutput<Sources>(prompt, sourcesSchema);
+    const response: Sources = await client.generateTextWithSearchStructuredOutput<Sources>(prompt, sourcesSchema);
     const validSources : Sources = {sources: response.sources.filter((source: { url: string; }) => isValidUrl(source.url))};
     validSources.sources.forEach((source: { id: number; }) => {
         source.id = Math.floor(Math.random() * 1000000);
@@ -20,7 +22,6 @@ function createSuggestionPrompt(topic: string, bias: string) {
     return `You are a news expert. You will suggest news sources based on the topic.
 
     Topic: ${topic}
-    Bias: ${bias}
 
     Suggest 5 valid URLs of news sources related to the topic.`;
 }
@@ -47,7 +48,21 @@ function estimateTokenCount(text: string): number {
 }
 
 export async function provideNews(sources: string[], client: LLMClient): Promise<NewsSummaryResponseItem[]> {
-    const HTMLcontent: string[] = await Promise.all(sources.map(fetchWebpage));
+    const HTMLcontent: {url: string, content: string}[] = await Promise.all(
+        sources.map(async (url) => ({
+            url,
+            content: await fetchWebpage(url)
+        }))
+    );
+
+    const persistentMemory: PersistentMemory = {topics: []};
+
+    for (const content of HTMLcontent) {
+        const prompt: string = createCategorizationPrompt(persistentMemory, content.content);
+        const response: Categories = await client.generateStructuredOutput<Categories>(prompt, categoriesSchema);
+        persistentMemory.push(response.categoryArray[0].category);
+    }
+
     const prompt: string = createCategorizationPrompt(HTMLcontent);
     console.log('\n\ntesting categorization prompt \n\n');
     console.log(estimateTokenCount(prompt));
@@ -63,11 +78,11 @@ export async function provideNews(sources: string[], client: LLMClient): Promise
     const newsSummaryResponseItemArray: NewsSummaryResponseItem[] = [];
     
     for (const category of response.categoryArray) {
-        console.log('Waiting for 20 seconds...');
-        for (let i = 1; i <= 20; i++) {
-            console.log(`Second ${i}`);
-            await new Promise(resolve => setTimeout(resolve, 1000));
-        }
+        // console.log('Waiting for 20 seconds...');
+        // for (let i = 1; i <= 20; i++) {
+        //     console.log(`Second ${i}`);
+        //     await new Promise(resolve => setTimeout(resolve, 1000));
+        // }
         console.log('--------------------------------');
         console.log(category.category);
         console.log(category.sources);
@@ -105,20 +120,40 @@ async function fetchWebpage(url: string): Promise<string> {
     }
 }
 
-function createCategorizationPrompt(sources: string[]): string {
-    const indexedSources = sources.map((content, index) => {
-        return `Source ${index}:\n${content}`;
-    }).join('\n\n------------\n\n');
 
-    const prompt = `You are a news summarization expert. You will be given a list of news articles.
 
-Here is the content from the different news sources, separated by '------------':
-${indexedSources}
+function createCategorizationPrompt(persistentMemory: PersistentMemory, content: string): string {
+    
+    const existingTopics = persistentMemory.topics.length > 0 
+        ? `\n\nCurrent topics:\n${persistentMemory.topics.map((topic) => `${topic.name}`).join('\n')}`
+        : '\n\nNo existing topics yet.';
 
-From the provided content, please identify the main topics and news stories. For each topic or story, list the indices of the sources that discuss it. A source can be associated with multiple topics.
+    const prompt = `You are a news categorization expert. You will be given a single news article and a list of existing topics.
 
-Your output should be a list of topics and stories. For each, specify the sources by their index. 0 index is the first source, 1 index is the second source, and so on.
+Here is the content to categorize:
+${content}
 
+
+=========================
+
+Here is the list of existing topics:
+${existingTopics}
+
+Please analyze this content and take one of the following actions:
+
+1. **Categorize into existing topic**: If the content fits an existing topic, specify the topic number and optionally suggest a better name for that topic.
+
+2. **Categorize into existing topic with rename**: If the content fits an existing topic but you think the topic name should be changed, specify the topic number and provide a new name.
+
+3. **Create new topic**: If the content doesn't fit any existing topics, create a new topic name.
+
+Your response should be in this format:
+- Action: [1, 2, or 3] Just respond with the number of the action you want to take. (1: Categorize into existing topic, 2: Categorize into existing topic with rename, 3: Create new topic)
+- Topic Name: [existing topic name if choice 1, old topic name if choice 2, empty string if choice 3]
+- New Topic Name: [new topic name if choice 2, new topic name if choice 3]
+
+
+Ensure that the topics will be unique and not similar to each other.
 `;
     return prompt;
 }
