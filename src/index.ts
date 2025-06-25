@@ -123,6 +123,11 @@ app.post('/api/news-summary', async (req, res) => {
         error: 'LLM client not initialized. Please call /api/init-llm first.' 
       });
     }
+        // 1. Set SSE Headers
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders(); // Flush the headers to establish the connection
 
     const sources = newsSummarySchema.parse(req.body).sources;
     
@@ -131,12 +136,15 @@ app.post('/api/news-summary', async (req, res) => {
     // res.setHeader('Transfer-Encoding', 'chunked');
     
     // Call the provideNews function and stream the response
-    const summary: NewsSummaryResponseItem[] = await provideNews(sources, llmClient);
-    
-    res.json({
-      success: true,
-      summary: summary
+    await provideNews(sources, llmClient, res);
+
+    // Handle client disconnect
+    req.on('close', () => {
+      console.log('Client closed connection.');
+      res.end();
     });
+
+
   } catch (error) {
     if (error instanceof z.ZodError) {
       res.status(400).json({ 

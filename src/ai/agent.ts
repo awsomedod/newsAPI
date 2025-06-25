@@ -1,6 +1,6 @@
 import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
-import * as cheerio from 'cheerio';
+import { Response } from 'express';
 import { LLMClient, 
     sourcesSchema, 
     Sources, 
@@ -49,7 +49,8 @@ function estimateTokenCount(text: string): number {
     return Math.round((charBasedEstimate + wordBasedEstimate) / 2);
 }
 
-export async function provideNews(sources: string[], client: LLMClient): Promise<NewsSummaryResponseItem[]> {
+export async function provideNews(sources: string[], client: LLMClient, response: Response): Promise<void> {
+    try {
     const HTMLcontent: {url: string, content: string}[] = await Promise.all(
         sources.map(async (url) => ({
             url,
@@ -171,22 +172,17 @@ export async function provideNews(sources: string[], client: LLMClient): Promise
         const relevantHTMLContent: string[] = await Promise.all(topic.sources.map((source) => fetchWebpage(source)));
         const summaryPrompt: string = createSummaryPrompt(topic.name, relevantHTMLContent);
         const summaryStream: NewsSummaryResponseItem = await client.generateStructuredOutput(summaryPrompt, newsSummaryResponseItemSchema);
-        process.stdout.write(summaryStream.id.toString());
-        process.stdout.write(summaryStream.title);
-        process.stdout.write(summaryStream.summary);
-        process.stdout.write(summaryStream.image);
+        summaryStream.id = Math.floor(Math.random() * 1000000);
+        response.write(JSON.stringify(summaryStream));
 
-        newsSummaryResponseItemArray.push(summaryStream);
-
-        console.log('\n');
     }
-
-    // Reroll IDs for each item in the array
-    for (let i = 0; i < newsSummaryResponseItemArray.length; i++) {
-        newsSummaryResponseItemArray[i].id = Math.floor(Math.random() * 1000000);
+    } catch (error) {
+        console.error('Error generating news summary:', error);
+        response.end();
+    } finally {
+        console.log('All summaries sent. Closing connection.');
+        response.end();
     }
-
-    return newsSummaryResponseItemArray;
 }
 
 async function fetchWebpage(url: string): Promise<string> {
