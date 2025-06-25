@@ -37,13 +37,15 @@ export type Sources = z.infer<typeof sourcesSchema>;
 export const TopicAssignmentSchema = z.object({
   topicName: z.string().min(1, "Topic name cannot be empty."),
   isNew: z.boolean(),
-  furtherReadings: z.array(z.string()).optional().describe('Array of URLs for further reading for the topic'),
+  furtherReadings: z.array(z.string()).max(3, "Maximum of 3 further readings allowed").optional().describe('Array of URLs for further reading for the topic'),
 });
 
 // Schema for the LLM's categorization response for a single piece of content
 export const CategorizationResponseSchema = z.object({
   assignments: z.array(TopicAssignmentSchema)
-      .min(1, "At least one topic assignment is required."), // Or .optional() if an empty array is valid
+      .max(5, "Maximum of 5 topic assignments are allowed."),
+  skip: z.boolean().optional().describe('Whether to skip the content item'),
+  // Or .optional() if an empty array is valid
 });
 
 // Infer the TypeScript type from the Zod schema

@@ -1,4 +1,4 @@
-import { JSDOM } from 'jsdom';
+import { JSDOM, ResourceLoader, FetchOptions, AbortablePromise } from 'jsdom';
 import { Readability } from '@mozilla/readability';
 import { Response } from 'express';
 import { LLMClient, 
@@ -11,12 +11,17 @@ import { LLMClient,
     CategorizationResponse } from "./types";
 
 export async function suggestNewsSources(topic: string, bias: string, client: LLMClient): Promise<Sources> {
+    console.log('Starting suggestNewsSources function with topic:', topic, 'and bias:', bias);
     const prompt: string = createSuggestionPrompt(topic, bias);
+    console.log('Created suggestion prompt');
     const response: Sources = await client.generateTextWithSearchStructuredOutput<Sources>(prompt, sourcesSchema);
+    console.log('Received response from LLM');
     const validSources : Sources = {sources: response.sources.filter((source: { url: string; }) => isValidUrl(source.url))};
+    console.log('Filtered valid sources:', validSources);
     validSources.sources.forEach((source: { id: number; }) => {
         source.id = Math.floor(Math.random() * 1000000);
     });
+    console.log('Added random IDs to sources');
     return validSources;
 }
 
@@ -51,61 +56,83 @@ function estimateTokenCount(text: string): number {
 
 export async function provideNews(sources: string[], client: LLMClient, response: Response): Promise<void> {
     try {
+    console.log('Starting provideNews function with sources:', sources);
     const HTMLcontent: {url: string, content: string}[] = await Promise.all(
         sources.map(async (url) => ({
             url,
             content: await fetchWebpage(url)
         }))
     );
-
+    console.log('Fetched HTML content from all sources');
 
     const persistentMemory: Topic[] = [];
+    console.log('Initialized empty persistentMemory');
 
     for (const contentItem of HTMLcontent) { // Renamed 'content' to 'contentItem' for clarity
+        console.log('Processing content from URL:', contentItem.url);
         const prompt: string = createCategorizationPrompt(persistentMemory, contentItem.content);
+        console.log('Created categorization prompt');
         // Ensure categorizationResponseSchema is updated for the new CategorizationResponse structure
         const response: CategorizationResponse = await client.generateStructuredOutput<CategorizationResponse>(prompt, CategorizationResponseSchema);
+        console.log('Received categorization response from LLM');
 
-        if (!response || !response.assignments || response.assignments.length === 0) {
+        if (!response || !response.assignments || response.assignments.length === 0 || Boolean(response.skip)) {
+            console.log('--------------------------------======================--------------------------------');
+            console.log(response);
+            console.log('No valid assignments received, skipping content item');
+            console.log('Skipping content item:', contentItem.url);
             continue;
         }
 
         response.assignments.map(assignment => {
             assignment.furtherReadings = assignment.furtherReadings?.filter(url => isValidUrl(url));
         });
+        console.log('Filtered invalid URLs from further readings');
+
+        console.log('Processing assignments:', response.assignments);
 
         for (const assignment of response.assignments) {
+            console.log('Processing assignment for topic:', assignment.topicName);
             const { topicName, isNew, furtherReadings } = assignment;
 
             if (!topicName || topicName.trim() === "") {
+                console.log('Invalid topic name, skipping assignment');
                 continue;
             }
 
             let topic = persistentMemory.find(t => t.name.toLowerCase() === topicName.toLowerCase());
+            console.log('Found existing topic?', !!topic);
 
             if (isNew) {
                 if (topic) {
+                    console.log('LLM suggested new topic but found existing one with same name');
                     // LLM suggested creating a new topic, but one with the same name already exists.
                     // We'll treat this as adding to the existing topic.
                     if (!topic.sources.includes(contentItem.url)) {
                         topic.sources.push(contentItem.url);
+                        console.log('Added new source to existing topic');
                     } else {
+                        console.log('Source already exists in topic');
                     }
                     
                     // Add furtherReadings to existing topic if provided
                     if (furtherReadings && furtherReadings.length > 0) {
+                        console.log('Processing further readings for existing topic');
                         for (const url of furtherReadings) {
                             if (!topic.sources.includes(url)) {
                                 topic.sources.push(url);
+                                console.log('Added further reading URL to topic:', url);
                             }
                         }
                     }
                 } else {
+                    console.log('Creating new topic:', topicName);
                     // Create new topic
                     const sources = [contentItem.url];
                     
                     // Add furtherReadings to new topic if provided
                     if (furtherReadings && furtherReadings.length > 0) {
+                        console.log('Adding further readings to new topic');
                         sources.push(...furtherReadings);
                     }
                     
@@ -114,23 +141,29 @@ export async function provideNews(sources: string[], client: LLMClient, response
                         sources: sources
                     };
                     persistentMemory.push(newTopic);
+                    console.log('New topic created and added to persistentMemory');
                 }
             } else { // isNew is false, LLM suggests it's an existing topic
                 if (topic) {
+                    console.log('Adding to existing topic:', topicName);
                     // Categorize into existing topic
                     if (!topic.sources.includes(contentItem.url)) {
                         topic.sources.push(contentItem.url);
+                        console.log('Added new source to topic');
                     }
                     
                     // Add furtherReadings to existing topic if provided
                     if (furtherReadings && furtherReadings.length > 0) {
+                        console.log('Processing further readings for existing topic');
                         for (const url of furtherReadings) {
                             if (!topic.sources.includes(url)) {
                                 topic.sources.push(url);
+                                console.log('Added further reading URL:', url);
                             }
                         }
                     }
                 } else {
+                    console.log('LLM indicated existing topic but not found, creating new:', topicName);
                     // LLM said it's existing, but we couldn't find it.
                     // This could be an LLM error or a slight naming mismatch it didn't intend as new.
                     // Safest to create it as new, or you could add more sophisticated fuzzy matching.
@@ -138,6 +171,7 @@ export async function provideNews(sources: string[], client: LLMClient, response
                     
                     // Add furtherReadings to new topic if provided
                     if (furtherReadings && furtherReadings.length > 0) {
+                        console.log('Adding further readings to new topic');
                         sources.push(...furtherReadings);
                     }
                     
@@ -146,34 +180,46 @@ export async function provideNews(sources: string[], client: LLMClient, response
                         sources: sources
                     };
                     persistentMemory.push(newTopic);
+                    console.log('Created new topic due to missing reference');
                 }
             }
         }
     }
 
 
-    
-    for (const topic of persistentMemory) {
-        const tokenCounts = await Promise.all(topic.sources.map(async (source) => estimateTokenCount(await fetchWebpage(source))));
-        console.log(tokenCounts.reduce((a, b) => a + b, 0));
-    }
+    // console.log('All content processed, calculating token counts');
+    // for (const topic of persistentMemory) {
+    //     const tokenCounts = await Promise.all(topic.sources.map(async (source) => estimateTokenCount(await fetchWebpage(source))));
+    //     console.log(topic.name, topic.sources, tokenCounts.reduce((a, b) => a + b, 0));
+    // }
 
     const newsSummaryResponseItemArray: NewsSummaryResponseItem[] = [];
+    console.log('Starting summary generation for all topics');
     
     for (const topic of persistentMemory) {
+        console.log('Generating summary for topic:', topic.name);
         // console.log('Waiting for 20 seconds...');
         // for (let i = 1; i <= 20; i++) {
         //     console.log(`Second ${i}`);
         //     await new Promise(resolve => setTimeout(resolve, 1000));
         // }
+        const relevantHTMLContent: string[] = await Promise.all(topic.sources.map((source) => fetchWebpage(source)));
+        console.log('Fetched HTML content for all sources in topic');
+        const summaryPrompt: string = createSummaryPrompt(topic.name, relevantHTMLContent);
+        console.log('Created summary prompt');
+        const summaryStream: NewsSummaryResponseItem = await client.generateStructuredOutput(summaryPrompt, newsSummaryResponseItemSchema);
+        console.log('Received summary from LLM');
+        summaryStream.id = Math.floor(Math.random() * 1000000);
         console.log('--------------------------------');
         console.log(topic.name);
         console.log(topic.sources);
-        const relevantHTMLContent: string[] = await Promise.all(topic.sources.map((source) => fetchWebpage(source)));
-        const summaryPrompt: string = createSummaryPrompt(topic.name, relevantHTMLContent);
-        const summaryStream: NewsSummaryResponseItem = await client.generateStructuredOutput(summaryPrompt, newsSummaryResponseItemSchema);
-        summaryStream.id = Math.floor(Math.random() * 1000000);
-        response.write(JSON.stringify(summaryStream));
+        console.log(summaryStream.summary);
+        console.log(summaryStream.image);
+        
+
+        const summaryStreamString =`data: ${JSON.stringify(summaryStream)}\n\n`;
+        response.write(summaryStreamString);
+        console.log('Sent summary to client');
 
     }
     } catch (error) {
@@ -185,32 +231,22 @@ export async function provideNews(sources: string[], client: LLMClient, response
     }
 }
 
-async function fetchWebpage(url: string): Promise<string> {
+
+async function fetchWebpage(url: string): Promise<string | null> {
     try {
-        const response = await fetch(url);
+        const response = await fetch(`http://localhost:5000/fetch-filtered-page?url=${encodeURIComponent(url)}`);
+        
         if (!response.ok) {
-          throw new Error(`Failed to fetch ${url}: ${response.statusText}`);
+            console.error(`Error fetching webpage: ${response.status} ${response.statusText}`);
+            return null;
         }
-        const html = await response.text();
-    
-        // 1. Create a virtual DOM using JSDOM with CSS parsing disabled
-        // We pass the URL as the second argument to JSDOM so it can correctly
-        // resolve relative URLs for links and images.
-        // We disable CSS parsing to avoid errors from malformed CSS
-        const dom = new JSDOM(html, { 
-            url,
-            runScripts: "outside-only",
-            resources: "usable",
-            includeNodeLocations: false
-        });
-    
-        // 2. Use Readability to extract the main article content
-        const reader = new Readability(dom.window.document);
-        const article = reader.parse();
-        return article.content;
-    } catch (error: any) {
-        return `Error processing ${url}`;
-    }    
+        
+        const data = await response.json();
+        return data.content_html || null;
+    } catch (error) {
+        console.error(`Error fetching webpage from ${url}:`, error);
+        return null;
+    }
 }
 
 
@@ -231,7 +267,9 @@ ${content}
 Here is the list of existing topics:
 ${existingTopics}
 
-Please analyze this content and categorize it appropriately. You should return an array of topic assignments where each assignment contains:
+First, analyze if this content is about technical issues, webpage loading errors, API responses, HTML issues or other non-newsworthy technical content. If it is, return { "skip": true }.
+
+Otherwise, analyze the content and categorize it appropriately. You should return an array of topic assignments where each assignment contains:
 
 1. **topicName**: The name of the topic (either an existing topic name or a new topic name you're creating)
 2. **isNew**: A boolean indicating whether this is a new topic (true) or an existing topic (false)
@@ -246,9 +284,14 @@ Guidelines:
 - When creating new topics, ensure they are distinct and don't overlap with each other
 - For each topic assignment, extract any relevant URLs from the content that link to complete articles about that topic
 - The furtherReadings URLs should be direct links to full articles, not homepages or category pages
+- Limit furtherReadings to a maximum of 3 URLs per topic assignment to ensure the most newsworthy and relevant links are prioritized
+- Limit the total number of topic assignments to a maximum of 5 to ensure the most relevant topics are prioritized
 - If no relevant article links are found for a topic, you can omit the furtherReadings field or set it to an empty array
 
-Your response should be a JSON object with an "assignments" array containing topic assignments.`;
+Your response should be a JSON object with either:
+1. { "skip": true } for technical/error content
+2. { "skip": false, "assignments": [...] } for newsworthy content
+`;
     return prompt;
 }
 
