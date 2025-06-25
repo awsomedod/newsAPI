@@ -1,12 +1,14 @@
+import { JSDOM } from 'jsdom';
+import { Readability } from '@mozilla/readability';
+import * as cheerio from 'cheerio';
 import { LLMClient, 
     sourcesSchema, 
     Sources, 
-    categoriesSchema, 
-    Categories, 
     newsSummaryResponseItemSchema, 
     NewsSummaryResponseItem,
-    PersistentMemory,
-    Topic } from "./types";
+    Topic,
+    CategorizationResponseSchema,
+    CategorizationResponse } from "./types";
 
 export async function suggestNewsSources(topic: string, bias: string, client: LLMClient): Promise<Sources> {
     const prompt: string = createSuggestionPrompt(topic, bias);
@@ -55,39 +57,119 @@ export async function provideNews(sources: string[], client: LLMClient): Promise
         }))
     );
 
-    const persistentMemory: PersistentMemory = {topics: []};
 
-    for (const content of HTMLcontent) {
-        const prompt: string = createCategorizationPrompt(persistentMemory, content.content);
-        const response: Categories = await client.generateStructuredOutput<Categories>(prompt, categoriesSchema);
-        persistentMemory.push(response.categoryArray[0].category);
+    const persistentMemory: Topic[] = [];
+
+    for (const contentItem of HTMLcontent) { // Renamed 'content' to 'contentItem' for clarity
+        const prompt: string = createCategorizationPrompt(persistentMemory, contentItem.content);
+        // Ensure categorizationResponseSchema is updated for the new CategorizationResponse structure
+        const response: CategorizationResponse = await client.generateStructuredOutput<CategorizationResponse>(prompt, CategorizationResponseSchema);
+
+        if (!response || !response.assignments || response.assignments.length === 0) {
+            continue;
+        }
+
+        response.assignments.map(assignment => {
+            assignment.furtherReadings = assignment.furtherReadings?.filter(url => isValidUrl(url));
+        });
+
+        for (const assignment of response.assignments) {
+            const { topicName, isNew, furtherReadings } = assignment;
+
+            if (!topicName || topicName.trim() === "") {
+                continue;
+            }
+
+            let topic = persistentMemory.find(t => t.name.toLowerCase() === topicName.toLowerCase());
+
+            if (isNew) {
+                if (topic) {
+                    // LLM suggested creating a new topic, but one with the same name already exists.
+                    // We'll treat this as adding to the existing topic.
+                    if (!topic.sources.includes(contentItem.url)) {
+                        topic.sources.push(contentItem.url);
+                    } else {
+                    }
+                    
+                    // Add furtherReadings to existing topic if provided
+                    if (furtherReadings && furtherReadings.length > 0) {
+                        for (const url of furtherReadings) {
+                            if (!topic.sources.includes(url)) {
+                                topic.sources.push(url);
+                            }
+                        }
+                    }
+                } else {
+                    // Create new topic
+                    const sources = [contentItem.url];
+                    
+                    // Add furtherReadings to new topic if provided
+                    if (furtherReadings && furtherReadings.length > 0) {
+                        sources.push(...furtherReadings);
+                    }
+                    
+                    const newTopic: Topic = {
+                        name: topicName,
+                        sources: sources
+                    };
+                    persistentMemory.push(newTopic);
+                }
+            } else { // isNew is false, LLM suggests it's an existing topic
+                if (topic) {
+                    // Categorize into existing topic
+                    if (!topic.sources.includes(contentItem.url)) {
+                        topic.sources.push(contentItem.url);
+                    }
+                    
+                    // Add furtherReadings to existing topic if provided
+                    if (furtherReadings && furtherReadings.length > 0) {
+                        for (const url of furtherReadings) {
+                            if (!topic.sources.includes(url)) {
+                                topic.sources.push(url);
+                            }
+                        }
+                    }
+                } else {
+                    // LLM said it's existing, but we couldn't find it.
+                    // This could be an LLM error or a slight naming mismatch it didn't intend as new.
+                    // Safest to create it as new, or you could add more sophisticated fuzzy matching.
+                    const sources = [contentItem.url];
+                    
+                    // Add furtherReadings to new topic if provided
+                    if (furtherReadings && furtherReadings.length > 0) {
+                        sources.push(...furtherReadings);
+                    }
+                    
+                    const newTopic: Topic = {
+                        name: topicName,
+                        sources: sources
+                    };
+                    persistentMemory.push(newTopic);
+                }
+            }
+        }
     }
 
-    const prompt: string = createCategorizationPrompt(HTMLcontent);
-    console.log('\n\ntesting categorization prompt \n\n');
-    console.log(estimateTokenCount(prompt));
-    console.log('\n\n');
-    const response: Categories = await client.generateStructuredOutput<Categories>(prompt, categoriesSchema);
+
     
-    for (const category of response.categoryArray) {
-        console.log('--------------------------------');
-        console.log(category.category);
-        console.log(category.sources);
+    for (const topic of persistentMemory) {
+        const tokenCounts = await Promise.all(topic.sources.map(async (source) => estimateTokenCount(await fetchWebpage(source))));
+        console.log(tokenCounts.reduce((a, b) => a + b, 0));
     }
 
     const newsSummaryResponseItemArray: NewsSummaryResponseItem[] = [];
     
-    for (const category of response.categoryArray) {
+    for (const topic of persistentMemory) {
         // console.log('Waiting for 20 seconds...');
         // for (let i = 1; i <= 20; i++) {
         //     console.log(`Second ${i}`);
         //     await new Promise(resolve => setTimeout(resolve, 1000));
         // }
         console.log('--------------------------------');
-        console.log(category.category);
-        console.log(category.sources);
-        const relevantHTMLContent: string[] = HTMLcontent.filter((content, index) => category.sources.includes(index));
-        const summaryPrompt: string = createSummaryPrompt(category.category, relevantHTMLContent);
+        console.log(topic.name);
+        console.log(topic.sources);
+        const relevantHTMLContent: string[] = await Promise.all(topic.sources.map((source) => fetchWebpage(source)));
+        const summaryPrompt: string = createSummaryPrompt(topic.name, relevantHTMLContent);
         const summaryStream: NewsSummaryResponseItem = await client.generateStructuredOutput(summaryPrompt, newsSummaryResponseItemSchema);
         process.stdout.write(summaryStream.id.toString());
         process.stdout.write(summaryStream.title);
@@ -109,23 +191,38 @@ export async function provideNews(sources: string[], client: LLMClient): Promise
 
 async function fetchWebpage(url: string): Promise<string> {
     try {
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch ${url}: ${response.statusText}`);
-      }
-      const text = await response.text();
-      return text;
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch ${url}: ${response.statusText}`);
+        }
+        const html = await response.text();
+    
+        // 1. Create a virtual DOM using JSDOM with CSS parsing disabled
+        // We pass the URL as the second argument to JSDOM so it can correctly
+        // resolve relative URLs for links and images.
+        // We disable CSS parsing to avoid errors from malformed CSS
+        const dom = new JSDOM(html, { 
+            url,
+            runScripts: "outside-only",
+            resources: "usable",
+            includeNodeLocations: false
+        });
+    
+        // 2. Use Readability to extract the main article content
+        const reader = new Readability(dom.window.document);
+        const article = reader.parse();
+        return article.content;
     } catch (error: any) {
-      return `Error fetching ${url}: ${error.message}`;
-    }
+        return `Error processing ${url}`;
+    }    
 }
 
 
 
-function createCategorizationPrompt(persistentMemory: PersistentMemory, content: string): string {
+function createCategorizationPrompt(persistentMemory: Topic[], content: string): string {
     
-    const existingTopics = persistentMemory.topics.length > 0 
-        ? `\n\nCurrent topics:\n${persistentMemory.topics.map((topic) => `${topic.name}`).join('\n')}`
+    const existingTopics = persistentMemory.length > 0 
+        ? `\n\nCurrent topics:\n${persistentMemory.map((topic) => `${topic.name}`).join('\n')}`
         : '\n\nNo existing topics yet.';
 
     const prompt = `You are a news categorization expert. You will be given a single news article and a list of existing topics.
@@ -133,28 +230,29 @@ function createCategorizationPrompt(persistentMemory: PersistentMemory, content:
 Here is the content to categorize:
 ${content}
 
-
 =========================
 
 Here is the list of existing topics:
 ${existingTopics}
 
-Please analyze this content and take one of the following actions:
+Please analyze this content and categorize it appropriately. You should return an array of topic assignments where each assignment contains:
 
-1. **Categorize into existing topic**: If the content fits an existing topic, specify the topic number and optionally suggest a better name for that topic.
+1. **topicName**: The name of the topic (either an existing topic name or a new topic name you're creating)
+2. **isNew**: A boolean indicating whether this is a new topic (true) or an existing topic (false)
+3. **furtherReadings**: (optional) An array of URLs to complete articles related to this topic (if available in the content)
 
-2. **Categorize into existing topic with rename**: If the content fits an existing topic but you think the topic name should be changed, specify the topic number and provide a new name.
+Guidelines:
+- If the content fits an existing topic, use that topic's exact name and set isNew to false
+- If the content doesn't fit any existing topics, you can create one or more new topic names and set isNew to true for each
+- You can assign the content to multiple topics if it covers multiple subjects (including a mix of existing and new topics)
+- Ensure topic names are clear, descriptive, and unique
+- Use exact topic names from the existing list when categorizing into existing topics
+- When creating new topics, ensure they are distinct and don't overlap with each other
+- For each topic assignment, extract any relevant URLs from the content that link to complete articles about that topic
+- The furtherReadings URLs should be direct links to full articles, not homepages or category pages
+- If no relevant article links are found for a topic, you can omit the furtherReadings field or set it to an empty array
 
-3. **Create new topic**: If the content doesn't fit any existing topics, create a new topic name.
-
-Your response should be in this format:
-- Action: [1, 2, or 3] Just respond with the number of the action you want to take. (1: Categorize into existing topic, 2: Categorize into existing topic with rename, 3: Create new topic)
-- Topic Name: [existing topic name if choice 1, old topic name if choice 2, empty string if choice 3]
-- New Topic Name: [new topic name if choice 2, new topic name if choice 3]
-
-
-Ensure that the topics will be unique and not similar to each other.
-`;
+Your response should be a JSON object with an "assignments" array containing topic assignments.`;
     return prompt;
 }
 

@@ -14,10 +14,6 @@ export type Topic = {
   sources: string[];
 };
 
-export type PersistentMemory = {
-  topics: Topic[];
-}
-
 export interface LLMClient {
   generateText(prompt: string): Promise<string>;
   generateStructuredOutput<T>(prompt: string, schema: ZodSchema): Promise<T>;
@@ -38,14 +34,21 @@ export const sourcesSchema = z.object({
 
 export type Sources = z.infer<typeof sourcesSchema>;
 
-export const categoriesSchema = z.object({
-    categoryArray: z.array(z.object({
-        category: z.string().describe('Category of a news story'),
-        sources: z.array(z.number().describe('Index of a source')).describe('Array of source indices')
-    })).describe('Array of categoried news stories'),
+export const TopicAssignmentSchema = z.object({
+  topicName: z.string().min(1, "Topic name cannot be empty."),
+  isNew: z.boolean(),
+  furtherReadings: z.array(z.string()).optional().describe('Array of URLs for further reading for the topic'),
 });
 
-export type Categories = z.infer<typeof categoriesSchema>;
+// Schema for the LLM's categorization response for a single piece of content
+export const CategorizationResponseSchema = z.object({
+  assignments: z.array(TopicAssignmentSchema)
+      .min(1, "At least one topic assignment is required."), // Or .optional() if an empty array is valid
+});
+
+// Infer the TypeScript type from the Zod schema
+export type CategorizationResponse = z.infer<typeof CategorizationResponseSchema>;
+export type TopicAssignment = z.infer<typeof TopicAssignmentSchema>;
 
 export const newsSummaryResponseItemSchema = z.object({
   id: z.number().describe('ID of the news story'),

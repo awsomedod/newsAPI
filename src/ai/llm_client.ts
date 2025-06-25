@@ -135,9 +135,7 @@ export class GoogleGenAIClient implements LLMClient {
   }
 
   async generateTextWithSearchStructuredOutput<T>(prompt: string, schema: ZodSchema): Promise<T> {
-    console.log('prompt', prompt);
     const stringResponse = await this.generateTextWithSearch(prompt);
-    console.log('stringResponse', stringResponse);
     const response: T = await this.generateStructuredOutput<T>(stringResponse, schema);
 
     return response;
