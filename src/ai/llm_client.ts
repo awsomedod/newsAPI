@@ -4,7 +4,7 @@ import { genkit, Genkit } from 'genkit';
 import { config } from 'dotenv';
 import { ZodSchema } from 'zod';
 import { LLMClient, LLMConfig } from './types';
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 
 
 config();

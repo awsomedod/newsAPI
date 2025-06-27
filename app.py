@@ -14,14 +14,6 @@ def fetch_webpage_python(url: str) -> tuple[str | None, list[str], list[str]]:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'
         }
-        # For an async version, you'd use aiohttp:
-        # async with aiohttp.ClientSession(headers=headers) as session:
-        #     async with session.get(url) as response:
-        #         response.raise_for_status() # aiohttp specific
-        #         content_type = response.headers.get('Content-Type', '')
-        #         if 'text/html' not in content_type.lower():
-        #             raise ValueError(f"Expected HTML content but received {content_type} from {url}")
-        #         html = await response.text()
         
         # Synchronous version with requests:
         response = requests.get(url, headers=headers, timeout=10)
@@ -38,9 +30,6 @@ def fetch_webpage_python(url: str) -> tuple[str | None, list[str], list[str]]:
         # The URL helps it resolve relative links if it were to keep them,
         # but for textContent, it's less critical.
         doc = Document(html, url=url) 
-        
-        # title = doc.title() # You can get the title
-        # article_html = doc.summary(html_partial=True) # HTML of the main content
 
         # To get plain text content, you parse the summary HTML (article_html)
         # However, readability-lxml's Document object itself has a way to get text,
