@@ -8,11 +8,20 @@ import { GoogleGenAI, Type } from "@google/genai";
 
 
 config();
+
+/**
+ * Set of supported Google Gemini models
+ * These models are compatible with the Google Generative AI API
+ */
 const GoogleModel: Set<string> = new Set(['gemini-2.0-flash-lite', 
   'gemini-2.0-flash', 
   'gemini-2.5-flash-preview-05-20',
   'gemini-1.5-flash']);
 
+/**
+ * Set of supported Claude models
+ * These models are compatible with Anthropic's API
+ */
 const ClaudeModel: Set<string> = new Set([
   'claude-3-5-sonnet-20241022',
   'claude-3-5-haiku-20241022',
@@ -23,12 +32,26 @@ const ClaudeModel: Set<string> = new Set([
 
 
 
+/**
+ * Mock LLM client for testing and development
+ * Provides simulated responses without making actual API calls
+ */
 export class MockClient implements LLMClient {
   constructor(private config: LLMConfig){}
+  /**
+   * Generate a mock text response
+   * @param prompt - The input prompt
+   * @returns Promise resolving to a mock response
+   */
   async generateText(prompt: string): Promise<string> {
-    return `This is a mock response for model ${this.config.model} to the promptsgsg: ${prompt}`;
+    return `This is a mock response for model ${this.config.model} to the prompt: ${prompt}`;
   }
 
+  /**
+   * Generate a mock structured response
+   * @param prompt - The input prompt
+   * @returns Promise resolving to a mock structured response
+   */
   async generateStructuredOutput<T>(prompt: string): Promise<T> {
     const mockResponse = {
       message: `This is a mock structured response for model ${this.config.model}`,
@@ -37,6 +60,11 @@ export class MockClient implements LLMClient {
     return mockResponse as T;
   }
 
+  /**
+   * Stream mock text response word by word
+   * @param prompt - The input prompt
+   * @returns AsyncGenerator yielding mock text chunks
+   */
   async *streamText(prompt: string): AsyncGenerator<string> {
     const response = `This is a mock stream response for model ${this.config.model} to the prompt: ${prompt}`;
     for (const word of response.split(' ')) {
@@ -46,10 +74,21 @@ export class MockClient implements LLMClient {
     }
   }
 
+  /**
+   * Generate a mock search response
+   * @param prompt - The input prompt
+   * @returns Promise resolving to a mock search response
+   */
   async generateTextWithSearch(prompt: string): Promise<string> {
     return `This is a mock search response for model ${this.config.model} to the prompt: ${prompt}`;
   }
 
+  /**
+   * Generate a mock structured search response
+   * @param prompt - The input prompt
+   * @param schema - The expected output schema
+   * @returns Promise resolving to a mock structured search response
+   */
   async generateTextWithSearchStructuredOutput<T>(prompt: string, schema: ZodSchema): Promise<T> {
     const mockResponse = {
       message: `This is a mock structured search response for model ${this.config.model}`,
@@ -60,11 +99,20 @@ export class MockClient implements LLMClient {
   }
 }
 
+/**
+ * Google Generative AI client implementation
+ * Provides access to Google's Gemini models through the Genkit framework
+ */
 export class GoogleGenAIClient implements LLMClient {
   private client: Genkit;
   private googleAI: GoogleGenAI;
   private model: string;
   
+  /**
+   * Initialize the Google GenAI client
+   * @param config - Configuration object containing provider, model, and API key
+   * @throws Error if the model is not supported
+   */
   constructor(config: LLMConfig) {
     if (GoogleModel.has(config.model)) {
       console.log(`Using Google model: ${config.model}`);
@@ -80,6 +128,12 @@ export class GoogleGenAIClient implements LLMClient {
   }
   
     
+  /**
+   * Generate text response using Google's Gemini model
+   * @param prompt - The input prompt
+   * @param systemPrompt - Optional system prompt to guide the model's behavior
+   * @returns Promise resolving to the generated text
+   */
   async generateText(prompt: string, systemPrompt?: string): Promise<string> {
     if (systemPrompt) {
       const { text } = await this.client.generate({system: systemPrompt, prompt: prompt});
@@ -90,6 +144,12 @@ export class GoogleGenAIClient implements LLMClient {
     }
   }
 
+  /**
+   * Generate structured output using a Zod schema
+   * @param prompt - The input prompt
+   * @param schema - Zod schema defining the expected output structure
+   * @returns Promise resolving to the structured data
+   */
   async generateStructuredOutput<T>(prompt: string, schema: ZodSchema): Promise<T> {
     const result = await this.client.generate({
         prompt: prompt,
@@ -101,6 +161,12 @@ export class GoogleGenAIClient implements LLMClient {
   }
   
 
+  /**
+   * Stream text response from Google's Gemini model
+   * @param prompt - The input prompt
+   * @param systemPrompt - Optional system prompt to guide the model's behavior
+   * @returns AsyncGenerator yielding text chunks
+   */
   async *streamText(prompt: string, systemPrompt?: string): AsyncGenerator<string> {
     if (systemPrompt) {
       const { stream } = await this.client.generateStream({system: systemPrompt, prompt: prompt});
@@ -116,6 +182,11 @@ export class GoogleGenAIClient implements LLMClient {
 
   }
 
+  /**
+   * Generate text with web search capabilities using Google's grounding tools
+   * @param prompt - The input prompt
+   * @returns Promise resolving to the generated text with search results
+   */
   async generateTextWithSearch(prompt: string): Promise<string> {
     const groundingTool = {
       googleSearch: {},
@@ -134,6 +205,12 @@ export class GoogleGenAIClient implements LLMClient {
     return response.text;
   }
 
+  /**
+   * Generate structured output with web search capabilities
+   * @param prompt - The input prompt
+   * @param schema - Zod schema defining the expected output structure
+   * @returns Promise resolving to the structured data with search results
+   */
   async generateTextWithSearchStructuredOutput<T>(prompt: string, schema: ZodSchema): Promise<T> {
     const stringResponse = await this.generateTextWithSearch(prompt);
     const response: T = await this.generateStructuredOutput<T>(stringResponse, schema);
@@ -147,7 +224,11 @@ export class GoogleGenAIClient implements LLMClient {
 
 
 
-// A factory function to create the right client
+/**
+ * Factory function to create the appropriate LLM client based on configuration
+ * @param config - Configuration object specifying the provider and model
+ * @returns An instance of the appropriate LLM client
+ */
 export function createLLMClient(config: LLMConfig): LLMClient {
   switch (config.provider) {
     case 'mock':
@@ -167,78 +248,4 @@ export function createLLMClient(config: LLMConfig): LLMClient {
       return new MockClient(config);
   }
 }
-
-
-
-
-// const google_client2: LLMClient = createLLMClient({
-//   provider: 'google',
-//   model: 'gemini-2.0-flash-lite',
-//   apiKey: "AIzaSyBt5EUJDfGsloIibeuFTA7On7YlSLQWylk",
-// });
-
-
-// const stream2 = google_client2.streamText('Write a 1 paragraph story about the 2020 US Presidential Election', 'You are a sims npc');
-
-// (async () => {
-//   for await (const chunk of stream2) {
-//     console.log(chunk);
-//   }
-// })();
-
-
-// (async () => {
-
-//   const personSchema = z.object({
-//     personalInfo: z.object({
-//       firstName: z.string().describe('The person\'s given name'),
-//       lastName: z.string().describe('The person\'s family name'),
-//       middleName: z.string().optional().describe('Optional middle name'),
-//       age: z.number().min(0).max(150).describe('Age in years'),
-//       dateOfBirth: z.string().describe('Date of birth in YYYY-MM-DD format'),
-//       gender: z.enum(['male', 'female', 'non-binary', 'other']).describe('Gender identity')
-//     }).describe('Basic personal information'),
-//     contact: z.object({
-//       email: z.string().describe('Primary email address'),
-//       phone: z.string().describe('Phone number with optional country code'),
-//       address: z.object({
-//         street: z.string().describe('Street address including house/apt number'),
-//         city: z.string().describe('City name'),
-//         state: z.string().describe('State or province'),
-//         country: z.string().describe('Country name'),
-//         postalCode: z.string().describe('Postal or ZIP code')
-//       }).describe('Physical address')
-//     }).describe('Contact information'),
-//     employment: z.object({
-//       currentRole: z.string().describe('Current job title'),
-//       company: z.string().describe('Current employer'),
-//       yearsOfExperience: z.number().min(0).describe('Years of work experience'),
-//       skills: z.array(z.string()).min(1).describe('List of professional skills'),
-//       salary: z.number().optional().describe('Annual salary in USD')
-//     }).describe('Employment details'),
-//     education: z.array(z.object({
-//       degree: z.string().describe('Name of degree or certification'),
-//       institution: z.string().describe('Name of educational institution'),
-//       graduationYear: z.number().describe('Year of graduation'),
-//       gpa: z.number().min(0).max(4).optional().describe('GPA on 4.0 scale')
-//     })).describe('Educational background'),
-//     preferences: z.object({
-//       languages: z.array(z.string()).min(10).describe('Languages spoken'),
-//       interests: z.array(z.string()).describe('Personal interests and hobbies'),
-//       dietaryRestrictions: z.array(z.string()).optional().describe('Dietary restrictions if any'),
-//       communicationPreferences: z.enum(['email', 'phone', 'text']).describe('Preferred contact method')
-//     }).describe('Personal preferences')
-//   });
-
-//   type Person = z.infer<typeof personSchema>;
-
-//   try {
-//     const person = await google_client2.generateStructuredOutput<Person>("Given a Person Schema, create a Person object", personSchema);
-//     console.log('Structured output:');
-//     console.log(person);
-//   } catch(e) {
-//     console.error(e);
-//   }
-// })();
-
 
