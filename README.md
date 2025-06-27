@@ -22,7 +22,7 @@ This project consists of two services:
 1. **Node.js Backend** (`src/`) - Main API service handling LLM interactions, news categorization, and streaming responses
 2. **Python Service** (`app.py`) - HTML content fetching and parsing service using BeautifulSoup for efficient content extraction
 
-The Python service was implemented to handle large HTML content that exceeds token limits, using BeautifulSoup for reliable HTML parsing and content trimming. This separation was made because Python provided the simplest solution. My previous solution which kept all of the functionality in one typecript service got too complicated and wasn't working properly when trying to trim down the html response content.
+The Python service was implemented to handle large HTML content that exceeds token limits, using BeautifulSoup for reliable HTML parsing and content trimming. This separation was made because Python provided the simplest solution. My previous solution which kept all of the functionality in one Node.js Backend got too complicated and wasn't working properly when trying to trim down the html response content.
 
 ## Installation
 
@@ -42,13 +42,6 @@ npm install
 pip install beautifulsoup4 requests flask
 ```
 
-4. Set up environment variables (optional):
-```bash
-# Create a .env file with your API keys
-GOOGLE_API_KEY=your_google_api_key
-ANTHROPIC_API_KEY=your_anthropic_api_key
-OPENAI_API_KEY=your_openai_api_key
-```
 
 ## Usage
 
